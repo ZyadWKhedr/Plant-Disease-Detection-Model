@@ -7,16 +7,13 @@ from PIL import Image
 import os
 
 # --- 1. FEATURE EXTRACTION FUNCTIONS ---
-# These MUST match the logic used in your training notebook
 def fd_hu_moments(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    feature = cv2.HuMoments(cv2.moments(gray)).flatten()
-    return feature
+    return cv2.HuMoments(cv2.moments(gray)).flatten()
 
 def fd_haralick(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    haralick = mahotas.features.haralick(gray).mean(axis=0)
-    return haralick
+    return mahotas.features.haralick(gray).mean(axis=0)
 
 def fd_histogram(image):
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -29,61 +26,100 @@ def fd_histogram(image):
 def load_model():
     model_path = 'plant_disease_model.pkl'
     if not os.path.exists(model_path):
-        st.error(f"Error: {model_path} not found. Please upload it to your GitHub repo.")
         return None
     return joblib.load(model_path)
 
-# Initialize App
-st.set_page_config(page_title="Plant Disease Detector", page_icon="🌿")
-st.title("🌿 Plant Disease Detection System")
+# --- 3. UI CONFIGURATION ---
+st.set_page_config(page_title="PlantDoc AI", page_icon="🌿", layout="wide")
+
+# Custom CSS for a cleaner, modern look
 st.markdown("""
-Identify crop diseases instantly using **Classical Machine Learning**. 
-This system uses SVM with Global Feature Extraction (Color, Texture, and Shape).
-""")
+    <style>
+    .main {
+        background-color: #f5f7f9;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
+        background-color: #2e7d32;
+        color: white;
+    }
+    .prediction-card {
+        padding: 20px;
+        border-radius: 10px;
+        background-color: #ffffff;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-left: 5px solid #2e7d32;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🌿 Plant Disease Diagnosis Dashboard")
+st.write("Upload a high-resolution image of a plant leaf for an instant SVM-based analysis.")
 
 data = load_model()
 
-# --- 3. UI & PREDICTION ---
-uploaded_file = st.file_uploader("Upload a leaf photo...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None and data is not None:
-    # Read the image
-    image = Image.open(uploaded_file)
-    st.image(image, caption='Uploaded Leaf Image', use_container_width=True)
-    
-    if st.button('🔍 Run Diagnosis'):
-        with st.spinner('Extracting digital signature...'):
-            try:
-                # Convert PIL to OpenCV (RGB -> BGR)
-                opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                
-                # Pre-processing
-                img_resized = cv2.resize(opencv_image, (256, 256))
-                
-                # Extract Features
-                fv_hu = fd_hu_moments(img_resized)
-                fv_haralick = fd_haralick(img_resized)
-                fv_hist = fd_histogram(img_resized)
-                
-                # Combine into one vector
-                final_feature = np.hstack([fv_hist, fv_haralick, fv_hu]).reshape(1, -1)
-                
-                # Prediction Pipeline (Scaling -> PCA -> SVM)
-                scaled_feat = data['scaler'].transform(final_feature)
-                pca_feat = data['pca'].transform(scaled_feat)
-                prediction = data['svm_model'].predict(pca_feat)
-                
-                # Decode Label
-                result = data['label_encoder'].inverse_transform(prediction)[0]
-                
-                # Format result for display (e.g., Apple___Black_rot -> Apple Black rot)
-                clean_result = result.replace('___', ' ').replace('_', ' ')
-                
-                st.success(f"### **Diagnosis:** {clean_result}")
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"An error occurred during processing: {e}")
-
+if data is None:
+    st.error("🚨 **Model File Missing:** Ensure 'plant_disease_model.pkl' is in the root directory.")
 else:
-    st.info("Please upload an image to begin.")
+    # --- 4. DASHBOARD LAYOUT ---
+    col1, col2 = st.columns([1, 1], gap="large")
+
+    with col1:
+        st.subheader("📸 Image Upload")
+        uploaded_file = st.file_uploader("Select a JPG/PNG leaf image", type=["jpg", "jpeg", "png"])
+        
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            st.image(image, caption='Uploaded Specimen', use_container_width=True)
+        else:
+            st.info("Awaiting image upload...")
+
+    with col2:
+        st.subheader("🧪 Analysis & Results")
+        if uploaded_file is not None:
+            if st.button('🔍 Run Diagnostic Test'):
+                with st.status("Analyzing features...", expanded=True) as status:
+                    try:
+                        # Processing
+                        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                        img_resized = cv2.resize(opencv_image, (256, 256))
+                        
+                        st.write("Computing HSV Histograms...")
+                        fv_hist = fd_histogram(img_resized)
+                        
+                        st.write("Calculating Haralick Texture...")
+                        fv_haralick = fd_haralick(img_resized)
+                        
+                        st.write("Evaluating Hu Shape Moments...")
+                        fv_hu = fd_hu_moments(img_resized)
+                        
+                        # Pipeline
+                        final_feature = np.hstack([fv_hist, fv_haralick, fv_hu]).reshape(1, -1)
+                        scaled_feat = data['scaler'].transform(final_feature)
+                        pca_feat = data['pca'].transform(scaled_feat)
+                        prediction = data['svm_model'].predict(pca_feat)
+                        
+                        result = data['label_encoder'].inverse_transform(prediction)[0]
+                        clean_result = result.replace('___', ' ').replace('_', ' ')
+                        
+                        status.update(label="Analysis Complete!", state="complete", expanded=False)
+                        
+                        # Result Display
+                        st.markdown(f"""
+                            <div class="prediction-card">
+                                <p style="color: #666; margin-bottom: 5px;">DETECTION RESULT</p>
+                                <h2 style="color: #2e7d32; margin-top: 0;">{clean_result}</h2>
+                                <p style="font-size: 0.9em; color: #888;">Diagnostic Engine: SVM-RBF Kernel</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.error(f"Diagnostic failure: {e}")
+        else:
+            st.warning("Please upload an image in the left panel to begin.")
+
+# Footer
+st.markdown("---")
+st.caption("Developed with Python, OpenCV, and Scikit-Learn")
