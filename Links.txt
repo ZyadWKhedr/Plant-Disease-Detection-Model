@@ -1,0 +1,3 @@
+Streamlit: https://plant-disease-detection-model-23011276-zyadwaelkhedr.streamlit.app/
+
+HuggingFace: https://huggingface.co/spaces/ZyadWael005/plant-disease-detector
